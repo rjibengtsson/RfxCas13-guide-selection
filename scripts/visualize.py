@@ -3,7 +3,7 @@
 
 Reads the pair table from extract_neighbours.py plus the index file naming each
 PspCas13b guide, and writes one interactive HTML plot per query guide to
-results/plots/.
+results/<TARGET>/plots/.
 
 Examples
 --------
@@ -23,6 +23,12 @@ import plotly.graph_objects as go
 # Paths are given relative to the repository root, not to this file, so that
 # results/ stays where it is now that the script lives in scripts/.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Results are grouped per target under results/<TARGET>/, so pointing the script
+# at a different target means changing this one name.
+TARGET = "MERS"
+RESULTS_DIR = os.path.join(ROOT, "results", TARGET)
+PLOTS_DIR = os.path.join(RESULTS_DIR, "plots")
 
 SURFACE = "#fcfcfb"      # plot background, and the ring that separates stacked points
 GRID = "#e8e7e2"
@@ -252,15 +258,13 @@ def plot_query_guide(query: QueryGuide, neighbours: Iterable[NeighbourGuide]) ->
         annotation_font_color=INK,
     )
     name = f"{file_slug(query.experimental_id)}_{file_slug(query.gene)}_guide_scores.html"
-    return fig.write_html(
-        os.path.join(ROOT, "results", "plots", name)
-    )
+    return fig.write_html(os.path.join(PLOTS_DIR, name))
 
 
 def main():
-    os.makedirs(os.path.join(ROOT, "results", "plots"), exist_ok=True)
-    data_file = os.path.join(ROOT, "results", "psp_neighbours_100bp.csv")
-    index_file = os.path.join(ROOT, "results", "psp_mers_index.csv")
+    os.makedirs(PLOTS_DIR, exist_ok=True)
+    data_file = os.path.join(RESULTS_DIR, "psp_neighbours_100bp.csv")
+    index_file = os.path.join(RESULTS_DIR, "psp_mers_index.csv")
 
     df = pd.read_csv(data_file, header=0)
     experimental_ids = load_experimental_ids(index_file)

@@ -9,13 +9,13 @@ Examples
 --------
     # every PspCas13b guide, 100 bp either side
     python scripts/extract_neighbours.py \
-        --input results/mers_guides_NC_019843_annotated.csv \
-        --output results/psp_neighbours_100bp.csv --window 100
+        --input results/MERS/mers_guides_NC_019843_annotated.csv \
+        --output results/MERS/psp_neighbours_100bp.csv --window 100
 
     # one guide, with a wider view downstream
     python scripts/extract_neighbours.py \
-        --input results/mers_guides_NC_019843_annotated.csv \
-        --output results/psp0_neighbours.csv \
+        --input results/MERS/mers_guides_NC_019843_annotated.csv \
+        --output results/MERS/psp0_neighbours.csv \
         --query-sequence TTAAGTGAATAGCTTGGCTATCTCACTTCC \
         --upstream 100 --downstream 300
 

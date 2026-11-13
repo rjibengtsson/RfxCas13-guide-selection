@@ -9,11 +9,11 @@ output; rows without a hit are marked in the ``blast_status`` column.
 Example
 -------
     python scripts/blast_guides.py \
-        --input data/mers_guides.csv \
+        --input data/MERS/mers_guides.csv \
         --seq-column "Target Sequence" \
-        --reference "data/ NC_019843/NC_019843.3.fasta" \
-        --output results/mers_guides_NC_019843.csv \
-        --all-hits results/mers_guides_NC_019843_all_hits.csv \
+        --reference data/MERS/NC_019843/NC_019843.3.fasta \
+        --output results/MERS/mers_guides_NC_019843.csv \
+        --all-hits results/MERS/mers_guides_NC_019843_all_hits.csv \
         --threads 4
 
 Needs pandas and BLAST+ on PATH (e.g. the `pik3-guide` conda env).

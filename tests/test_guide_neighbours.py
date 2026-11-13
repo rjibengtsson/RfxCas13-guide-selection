@@ -398,6 +398,7 @@ class TestCli:
 REAL_CSV = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "results",
+    "MERS",
     "mers_guides_NC_019843_annotated.csv",
 )
 

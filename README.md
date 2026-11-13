@@ -26,11 +26,11 @@ In this workspace the `pik3-guide` conda env has all of these:
 
 ```bash
 python scripts/blast_guides.py \
-    --input data/mers_guides.csv \
+    --input data/MERS/mers_guides.csv \
     --seq-column "Target Sequence" \
-    --reference data/NC_019843/NC_019843.3.gbk \
-    --output results/mers_guides_NC_019843_annotated.csv \
-    --all-hits results/mers_guides_NC_019843_annotated_all_hits.csv \
+    --reference data/MERS/NC_019843/NC_019843.3.gbk \
+    --output results/MERS/mers_guides_NC_019843_annotated.csv \
+    --all-hits results/MERS/mers_guides_NC_019843_annotated_all_hits.csv \
     --id-column Index \
     --threads 4
 ```
@@ -80,7 +80,7 @@ highest `bitscore`, then lowest `evalue`, then longest `aln_length`. Use
 | `strand` | `+` or `-`: the orientation of the hit on the reference. A guide and its target sequence map to the *same* interval on *opposite* strands, so the interval is comparable whichever column you BLAST. |
 | `qstart` | First base of the **query** that aligned, 1-based. Greater than 1 means the start of your sequence did not align. |
 | `qend` | Last base of the query that aligned. |
-| `qlen` | Full length of the query sequence. In `data/mers_guides.csv` this is 23 for RfxCas13d and 30 for PspCas13b. |
+| `qlen` | Full length of the query sequence. In `data/MERS/mers_guides.csv` this is 23 for RfxCas13d and 30 for PspCas13b. |
 | `aln_length` | Length of the alignment, including any gaps. |
 
 Note `ref_start`/`ref_end` are normalised low→high, which differs from raw
@@ -174,9 +174,9 @@ around each PspCas13b guide?" It reads the annotated CSV and writes one row per
 
 ```bash
 python scripts/extract_neighbours.py \
-    --input results/mers_guides_NC_019843_annotated.csv \
-    --output results/psp_neighbours_100bp.csv \
-    --summary results/psp_neighbours_100bp_summary.csv \
+    --input results/MERS/mers_guides_NC_019843_annotated.csv \
+    --output results/MERS/psp_neighbours_100bp.csv \
+    --summary results/MERS/psp_neighbours_100bp_summary.csv \
     --window 100
 ```
 
