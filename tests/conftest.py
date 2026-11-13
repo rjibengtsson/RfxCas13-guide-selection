@@ -12,9 +12,12 @@ for sub in ("src", "scripts"):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-GENOME_FASTA = os.path.join(ROOT, "data", "NC_019843", "NC_019843.3.fasta")
-GENOME_GBK = os.path.join(ROOT, "data", "NC_019843", "NC_019843.3.gbk")
-GUIDES_CSV = os.path.join(ROOT, "data", "mers_guides.csv")
+# Inputs are grouped per target under data/<TARGET>/, so the same test suite can
+# be pointed at a different target by changing this one name.
+TARGET = "MERS"
+GENOME_FASTA = os.path.join(ROOT, "data", TARGET, "NC_019843", "NC_019843.3.fasta")
+GENOME_GBK = os.path.join(ROOT, "data", TARGET, "NC_019843", "NC_019843.3.gbk")
+GUIDES_CSV = os.path.join(ROOT, "data", TARGET, "mers_guides.csv")
 
 # Integration tests need BLAST+ and the MERS reference; unit tests need neither.
 needs_blast = pytest.mark.skipif(

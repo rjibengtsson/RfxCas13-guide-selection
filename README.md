@@ -5,8 +5,10 @@ writes the original table back out with reference coordinates, BLAST statistics
 and (for a GenBank reference) overlapping gene features appended.
 
 - `src/blast_utils.py` — reusable library: database building, blastn, GenBank features
-- `scripts/blast_guides.py` — the command-line entry point
-- `tests/` — pytest suite (80 tests; integration tests skip if BLAST+ or the data are absent)
+- `scripts/blast_guides.py` — the mapping/annotation command-line entry point
+- `src/guide_neighbours.py` — reusable library: guides lying within and around another guide
+- `scripts/extract_neighbours.py` — the neighbour-extraction command-line entry point
+- `tests/` — pytest suite (146 tests; integration tests skip if BLAST+ or the data are absent)
 
 ## Requirements
 
@@ -24,11 +26,11 @@ In this workspace the `pik3-guide` conda env has all of these:
 
 ```bash
 python scripts/blast_guides.py \
-    --input data/mers_guides.csv \
+    --input data/MERS/mers_guides.csv \
     --seq-column "Target Sequence" \
-    --reference data/NC_019843/NC_019843.3.gbk \
-    --output results/mers_guides_NC_019843_annotated.csv \
-    --all-hits results/mers_guides_NC_019843_annotated_all_hits.csv \
+    --reference data/MERS/NC_019843/NC_019843.3.gbk \
+    --output results/MERS/mers_guides_NC_019843_annotated.csv \
+    --all-hits results/MERS/mers_guides_NC_019843_annotated_all_hits.csv \
     --id-column Index \
     --threads 4
 ```
@@ -78,7 +80,7 @@ highest `bitscore`, then lowest `evalue`, then longest `aln_length`. Use
 | `strand` | `+` or `-`: the orientation of the hit on the reference. A guide and its target sequence map to the *same* interval on *opposite* strands, so the interval is comparable whichever column you BLAST. |
 | `qstart` | First base of the **query** that aligned, 1-based. Greater than 1 means the start of your sequence did not align. |
 | `qend` | Last base of the query that aligned. |
-| `qlen` | Full length of the query sequence. In `data/mers_guides.csv` this is 23 for RfxCas13d and 30 for PspCas13b. |
+| `qlen` | Full length of the query sequence. In `data/MERS/mers_guides.csv` this is 23 for RfxCas13d and 30 for PspCas13b. |
 | `aln_length` | Length of the alignment, including any gaps. |
 
 Note `ref_start`/`ref_end` are normalised low→high, which differs from raw
@@ -163,3 +165,72 @@ above (no `n_hits` or `blast_status`, which are per-input-row), preceded by:
 - **Whitespace in paths.** BLAST+ parses `-in`/`-db` as space-separated file
   lists, so a reference path containing whitespace is passed via a whitespace-free
   symlink. A `--db-dir` containing whitespace is refused outright.
+
+## Extracting the guides around another guide
+
+`scripts/extract_neighbours.py` answers "which RfxCas13d guides sit within and
+around each PspCas13b guide?" It reads the annotated CSV and writes one row per
+(PspCas13b guide, nearby RfxCas13d guide) pair:
+
+```bash
+python scripts/extract_neighbours.py \
+    --input results/MERS/mers_guides_NC_019843_annotated.csv \
+    --output results/MERS/psp_neighbours_100bp.csv \
+    --summary results/MERS/psp_neighbours_100bp_summary.csv \
+    --window 100
+```
+
+A neighbour qualifies when it **overlaps** the query guide — wholly
+(`full_overlap`) or in part (`partial_overlap`) — or lies within the window
+**upstream** or **downstream** of it. The window may be asymmetric, and
+overlapping guides are always kept whatever the window — including at
+`--window 0`.
+
+| Option | Meaning |
+| --- | --- |
+| `--input` | Annotated CSV from `blast_guides.py`, run against a GenBank reference (the gene labels come from its feature columns). |
+| `--output` | Output CSV of guide pairs. |
+| `--summary` | Optional CSV with one row per query guide: its position, gene, and how many neighbours fall full_overlap / partial_overlap / upstream / downstream. |
+| `--window BP` | Symmetric window either side of the query guide (default 100). |
+| `--upstream BP`, `--downstream BP` | Per-side windows, each overriding `--window`. Use for an asymmetric view, e.g. `--upstream 100 --downstream 300`. |
+| `--query-index` | Comma-separated `Index` values to restrict the query guides to. |
+| `--query-sequence` | Restrict to the query guide carrying this Guide **or** Target Sequence. Case-insensitive, and `U` is accepted for `T`. |
+| `--query-cas`, `--neighbour-cas` | Which Cas type to search around and which to collect. Defaults `PspCas13b` and `RfxCas13d`. |
+| `--drop-empty` | Omit query guides with no neighbour, instead of marking them. |
+
+### Output fields
+
+| Field | Meaning |
+| --- | --- |
+| `query_cas`, `query_guide_index` | The guide being searched around, and its `Index` in the input. |
+| `query_gene` | The gene(s) that guide sits in, `;`-joined where it spans more than one (Index 15 reads `N;3'UTR`). Falls back to the feature type for the UTRs, which carry no `/gene` qualifier. |
+| `query_guide_sequence`, `query_target_sequence` | Both strands of the query guide, as given in the input. |
+| `query_ref_start`, `query_ref_end` | Its genome coordinates, 1-based inclusive. |
+| `n_neighbours` | How many neighbours this query guide has in total. Repeated on each of its rows, so one row tells you the whole picture. |
+| `relative_position` | Where the neighbour sits relative to the query guide: `full_overlap` (its footprint lies wholly inside the query guide's), `partial_overlap` (it overlaps but runs off one end — at the extreme, one shared base), `upstream` or `downstream`. `no_neighbour` marks a query guide that has none. |
+| `neighbour_*` | The neighbour guide's `guide_index`, both sequences, its `guide_score` and its coordinates. No `cas`, `strand` or `gene`: every neighbour is the requested `--neighbour-cas` on the strand the guides were given in, and its coordinates already say where it sits. |
+
+No BLAST statistics are carried across — identity, e-value and coverage stay in
+the annotated CSV.
+
+Points to be aware of:
+
+- **Gene boundaries are not consulted.** A neighbour counts on genomic proximity
+  alone, so it may be annotated to an adjoining feature.
+- **A guide can appear under several query guides.** PspCas13b Indexes 7, 8 and 9
+  sit at 27576, 27620 and 27722, within 100 bp of each other, so RfxCas13d guides
+  between them are reported under more than one — with `relative_position`
+  measured separately for each. That is why the 2,260 rows of
+  the 100 bp run cover only 1,994 distinct guides.
+- **Upstream and downstream are genome coordinates**, not transcript orientation:
+  upstream means the lower coordinates. Every guide in this dataset maps to the
+  plus strand, so the two coincide here.
+- **Six PspCas13b guides have no RfxCas13d guide within 100 bp** — Indexes 3, 10,
+  11, 12, 13 and 14. This is real, not a filtering artifact: the RfxCas13d set has
+  no guides at all between 13432 and 21459, 25495 and 27593, or 27816 and 29104,
+  so it does not cover ORF1b, orf3–orf5, M, or the 5' part of N. Index 10's
+  nearest guide is 105 bp away, so `--window 150` reaches it; Index 3's is 3,779
+  bp away and no reasonable window will.
+- **Where guides tile every base**, a 30 nt query guide overlaps exactly
+  30 + 23 − 1 = 52 of the 23 nt RfxCas13d guides, plus 101 at gaps 0–100 on each
+  side: the recurring `n_neighbours` of 254 is that saturation, not a bug.
