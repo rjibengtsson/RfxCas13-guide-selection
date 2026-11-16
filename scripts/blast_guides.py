@@ -1,13 +1,22 @@
 #!/usr/bin/env python
-"""Map sequences from a CSV column onto a reference genome with blastn.
+"""Map sequences from a delimited table onto a reference genome with blastn.
 
-Reads a CSV, blasts a user-chosen sequence column against a user-supplied
-reference FASTA, and writes the original table back out with reference
+Reads a CSV or TSV, blasts a user-chosen sequence column against a
+user-supplied reference, and writes the original table back out with reference
 coordinates and BLAST statistics appended. Every input row appears in the
-output; rows without a hit are marked in the ``blast_status`` column.
+output; rows without a hit are marked in the ``blast_status`` column. With a
+GenBank reference, the overlapping genes are appended too.
 
-Example
--------
+``--revcomp-query`` reverse-complements each sequence before blasting, which is
+how a table of Cas13 *spacers* is searched: a spacer is the reverse complement
+of the RNA it targets, so the target-sense DNA is what the genome contains.
+
+``--outfmt6`` additionally writes every HSP as a standard ``-outfmt 6`` table
+with a header line, named by the input's own ID column.
+
+Examples
+--------
+    # target-sense sequences, CSV in, MERS GenBank reference
     python scripts/blast_guides.py \
         --input data/MERS/mers_guides.csv \
         --seq-column "Target Sequence" \
@@ -16,7 +25,17 @@ Example
         --all-hits results/MERS/mers_guides_NC_019843_all_hits.csv \
         --threads 4
 
-Needs pandas and BLAST+ on PATH (e.g. the `pik3-guide` conda env).
+    # PspCas13b spacers, TSV in, converted to target DNA first
+    python scripts/blast_guides.py \
+        --input data/pspcas13b_guides/panSarbeCov_guides.tsv \
+        --seq-column Spacer --id-column Name --revcomp-query \
+        --reference data/SARS-CoV-2/MT007544.1/MT007544.1.gbk \
+        --output results/SARS-CoV-2/panSarbeCov_guides_MT007544.1_annotated.csv \
+        --outfmt6 results/SARS-CoV-2/panSarbeCov_guides_MT007544.1_fmt6.tsv \
+        --threads 4
+
+Needs pandas and BLAST+ on PATH (e.g. the `pik3-guide` conda env); a GenBank
+reference also needs Biopython.
 """
 
 from __future__ import annotations
@@ -43,8 +62,11 @@ from blast_utils import (  # noqa: E402
     load_features,
     make_blast_db,
     overlapping_features,
+    reverse_complement,
     run_blastn,
+    write_outfmt6,
 )
+from table_io import read_table  # noqa: E402
 
 # Columns appended to the input table, in output order.
 HIT_COLUMNS = [
@@ -121,11 +143,28 @@ def parse_args(argv=None) -> argparse.Namespace:
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    p.add_argument("--input", required=True, help="input CSV")
+    p.add_argument("--input", required=True, help="input table (CSV or TSV)")
+    p.add_argument(
+        "--input-sep",
+        default="auto",
+        help="input delimiter: auto (from the file extension), tab, csv, ';', '|', "
+        "whitespace, or a single character (default: auto)",
+    )
     p.add_argument("--seq-column", required=True, help="column holding the sequences to blast")
+    p.add_argument(
+        "--revcomp-query",
+        action="store_true",
+        help="reverse-complement each sequence before blasting, to turn Cas13 "
+        "spacers into the target-sense DNA the genome actually contains",
+    )
     p.add_argument("--reference", required=True, help="reference to blast against (FASTA or GenBank)")
     p.add_argument("--output", required=True, help="output CSV (input columns + blast results)")
     p.add_argument("--all-hits", help="optional CSV of every HSP, not just the best per sequence")
+    p.add_argument(
+        "--outfmt6",
+        help="optional headed blastn -outfmt 6 table of every HSP; gene columns "
+        "are appended after the canonical fields when annotating",
+    )
     p.add_argument("--id-column", help="column used to label queries in --all-hits (default: row number)")
     p.add_argument("--db-dir", help="where to cache the BLAST database (default: <output dir>/blastdb)")
     p.add_argument("--force-makedb", action="store_true", help="rebuild the BLAST database even if cached")
@@ -172,7 +211,7 @@ def clean_sequence(value) -> str:
 def main(argv=None) -> int:
     args = parse_args(argv)
 
-    df = pd.read_csv(args.input)
+    df = read_table(args.input, args.input_sep)
     if args.seq_column not in df.columns:
         print(
             f"error: column {args.seq_column!r} not in {args.input}\n"
@@ -187,6 +226,19 @@ def main(argv=None) -> int:
     # Internal query IDs are positional, so duplicate or whitespace-bearing
     # values in the user's own ID column can never collide or break the FASTA.
     sequences = df[args.seq_column].map(clean_sequence)
+
+    # Spacers are blasted as their reverse complement, and the derived sequence
+    # is carried into the output so the coordinates can be traced back to it.
+    if args.revcomp_query:
+        try:
+            sequences = sequences.map(lambda s: reverse_complement(s) if s else "")
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        df = df.assign(target_dna=sequences.values)
+        print(f"--revcomp-query: blasting the reverse complement of {args.seq_column!r} "
+              "(written to the target_dna column)")
+
     records = [(f"q{i}", seq) for i, seq in enumerate(sequences) if seq]
     n_empty = len(df) - len(records)
     print(f"read {len(df)} rows from {args.input}; {len(records)} sequences to blast"
@@ -276,10 +328,35 @@ def main(argv=None) -> int:
     summary = out["blast_status"].value_counts().to_dict()
     print(f"wrote {len(out)} rows to {args.output}  {summary}")
 
-    if args.all_hits:
-        labels = (
-            df[args.id_column].astype(str).tolist() if args.id_column else [str(i) for i in range(len(df))]
+    # Row labels, shared by --all-hits and --outfmt6, so both name queries the
+    # same way. Falls back to the row number when no ID column is given.
+    labels = (
+        df[args.id_column].astype(str).tolist() if args.id_column else [str(i) for i in range(len(df))]
+    )
+
+    if hits:
+        strands = {}
+        for hit in hits:
+            strands[hit.strand] = strands.get(hit.strand, 0) + 1
+        print(f"strand of reported HSPs: {strands}")
+
+    if args.outfmt6:
+        # Keyed by id(hit) because one query can yield several HSPs, each with
+        # its own overlapping features.
+        annotations = (
+            {id(h): annotate(features, h) for h in hits} if features is not None else None
         )
+        n = write_outfmt6(
+            hits,
+            args.outfmt6,
+            labels={f"q{i}": labels[i] for i in range(len(labels))},
+            annotations=annotations,
+            annotation_columns=ANNOTATION_COLUMNS if features is not None else (),
+        )
+        print(f"wrote {n} HSPs to {args.outfmt6} (headed outfmt 6"
+              + (" + gene columns)" if features is not None else ")"))
+
+    if args.all_hits:
         all_rows = []
         for hit in hits:
             rec = hit.as_record()

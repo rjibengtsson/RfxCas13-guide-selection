@@ -47,6 +47,76 @@ class BlastError(RuntimeError):
     """Raised when a BLAST+ executable is missing or exits non-zero."""
 
 
+# Full IUPAC nucleotide complement, so an ambiguity code in a supplied spacer
+# is complemented rather than silently dropped. U maps to A, and the T in the
+# reverse complement of a U-bearing spacer is deliberate: the output is DNA.
+COMPLEMENT = str.maketrans(
+    "ACGTUNRYSWKMBDHVacgtunryswkmbdhv",
+    "TGCAANYRSWMKVHDBtgcaanyrswmkvhdb",
+)
+
+
+def reverse_complement(seq: str) -> str:
+    """Reverse-complement a nucleotide string, returning DNA.
+
+    A Cas13 spacer is the reverse complement of the RNA it targets, so this is
+    how a spacer table is turned into the target sequences to search for. The
+    result is uppercase DNA: U is complemented to A, and no U is ever emitted.
+    """
+    cleaned = "".join(str(seq).split()).upper()
+    unknown = set(cleaned) - set("ACGTUNRYSWKMBDHV")
+    if unknown:
+        raise ValueError(
+            f"cannot reverse-complement {seq!r}: not a nucleotide sequence "
+            f"(unexpected {''.join(sorted(unknown))})"
+        )
+    return cleaned.translate(COMPLEMENT)[::-1]
+
+
+def write_outfmt6(
+    hits: Iterable[BlastHit],
+    path: str,
+    labels: dict[str, str] | None = None,
+    annotations: dict[str, dict] | None = None,
+    annotation_columns: Sequence[str] = (),
+) -> int:
+    """Write *hits* as a headed ``-outfmt 6`` table, one HSP per row.
+
+    The canonical fields come first, in :data:`OUTFMT_FIELDS` order, so the file
+    still reads left-to-right as standard fmt6 despite the header line. Any
+    *annotation_columns* are appended after them.
+
+    ``qseqid`` is taken from *labels* when the caller supplies one, mapping the
+    internal positional query ID to the name the sequence has in the input
+    table. *annotations* is keyed the same way, by internal query ID, but a hit
+    can have several HSPs, so callers pass per-hit values keyed by ``id(hit)``.
+
+    Subject coordinates are written exactly as blastn reported them -- for a
+    minus-strand hit ``sstart`` exceeds ``send`` -- because that is what fmt6
+    means. Use :attr:`BlastHit.ref_start`/:attr:`BlastHit.strand` for
+    low-to-high coordinates.
+    """
+    hits = list(hits)
+    columns = list(OUTFMT_FIELDS) + list(annotation_columns)
+
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w") as out:
+        out.write("\t".join(columns) + "\n")
+        for hit in hits:
+            rec = hit.as_record()
+            rec["qseqid"] = (labels or {}).get(hit.query_id, hit.query_id)
+            rec["sseqid"] = hit.subject_id
+            rec["length"] = hit.aln_length
+            extra = (annotations or {}).get(id(hit), {})
+            out.write(
+                "\t".join(str(rec.get(c, extra.get(c, ""))) for c in OUTFMT_FIELDS)
+                + ("\t" if annotation_columns else "")
+                + "\t".join(str(extra.get(c, "")) for c in annotation_columns)
+                + "\n"
+            )
+    return len(hits)
+
+
 @dataclass(frozen=True)
 class BlastHit:
     """One HSP, with coordinates normalised to always run low -> high."""
@@ -287,7 +357,7 @@ def detect_reference_format(path: str) -> str:
     )
 
 
-def _require_biopython():
+def require_biopython():
     try:
         from Bio import SeqIO  # noqa: PLC0415
     except ImportError as exc:  # pragma: no cover
@@ -311,7 +381,7 @@ def genbank_to_fasta(gbk_path: str, out_fasta: str, force: bool = False) -> str:
     ):
         return out_fasta
 
-    SeqIO = _require_biopython()
+    SeqIO = require_biopython()
     os.makedirs(os.path.dirname(os.path.abspath(out_fasta)), exist_ok=True)
     n = 0
     with open(out_fasta, "w") as out:
@@ -354,6 +424,14 @@ class Feature:
 
     ``parts`` holds the merged segments of a compound (``join(...)``) location,
     such as the ribosomal-frameshift ORF1ab CDS; ``start``/``end`` span them all.
+
+    ``raw_parts`` holds those segments *unmerged*, ascending. The two differ
+    where a location's segments touch or overlap, and the difference matters:
+    a coronavirus ORF1ab join() overlaps by one base at the slippage site,
+    which is read twice in the real transcript. Merging is right for asking how
+    many bases a hit shares with the feature (``overlap_bp``), and wrong for
+    reconstructing the feature's sequence, which must keep the duplicated base
+    or the reading frame shifts. Extraction therefore uses ``raw_parts``.
     """
 
     record_id: str
@@ -365,10 +443,20 @@ class Feature:
     gene: str = ""
     locus_tag: str = ""
     product: str = ""
+    raw_parts: tuple[tuple[int, int], ...] = ()
 
     @property
     def label(self) -> str:
         return self.gene or self.locus_tag or self.product or self.type
+
+    @property
+    def sequence_parts(self) -> tuple[tuple[int, int], ...]:
+        """Segments to concatenate when rebuilding this feature's sequence.
+
+        ``raw_parts`` when known, falling back to ``parts`` for a Feature built
+        by hand without them.
+        """
+        return self.raw_parts or self.parts
 
     def overlap_bp(self, start: int, end: int) -> int:
         """Bases shared with the 1-based inclusive interval [start, end]."""
@@ -392,7 +480,7 @@ def load_features(
 
     Pass ``feature_types=()`` to keep every type except ``source``.
     """
-    SeqIO = _require_biopython()
+    SeqIO = require_biopython()
     wanted = {t.lower() for t in feature_types}
     features: dict[str, list[Feature]] = {}
 
@@ -403,9 +491,10 @@ def load_features(
                 continue
             if wanted and feat.type.lower() not in wanted:
                 continue
-            parts = _merge_intervals(
-                [(int(p.start) + 1, int(p.end)) for p in feat.location.parts]
+            raw_parts = tuple(
+                sorted((int(p.start) + 1, int(p.end)) for p in feat.location.parts)
             )
+            parts = _merge_intervals(list(raw_parts))
             if not parts:
                 continue
             q = feat.qualifiers
@@ -420,6 +509,7 @@ def load_features(
                     gene=q.get("gene", [""])[0],
                     locus_tag=q.get("locus_tag", [""])[0],
                     product=q.get("product", [""])[0],
+                    raw_parts=raw_parts,
                 )
             )
         collected.sort(key=lambda f: (f.start, f.end, f.type, f.label))
