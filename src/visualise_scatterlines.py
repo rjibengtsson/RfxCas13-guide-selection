@@ -272,6 +272,39 @@ def drop_offsequence(
     return kept
 
 
+def filter_psps(
+    guides: Iterable[PspGuide], names: Iterable[str]
+) -> list[PspGuide]:
+    """Keep only the footprints named in *names*, in their original order.
+
+    Selecting a subset changes what the overlap classes mean -- a guide is
+    classified against the footprints it is given, so restricting the set makes
+    guides that only touched a dropped footprint fall back to ``none``. That is
+    the intended behaviour, and the reason this filter belongs upstream of
+    :func:`build_guides` rather than at drawing time: a figure whose colours
+    were decided by a footprint it does not draw cannot be read.
+
+    A name that matches nothing is an error, not an empty selection. The likely
+    cause is a typo, and the alternative is a figure that is silently missing a
+    footprint the caller believes is on it.
+    """
+    wanted = list(dict.fromkeys(names))     # de-duplicate, keep caller's order
+    if not wanted:
+        return list(guides)
+
+    guides = list(guides)
+    available = {g.name for g in guides}
+    unknown = [n for n in wanted if n not in available]
+    if unknown:
+        raise ValueError(
+            "no footprint named "
+            + ", ".join(map(repr, unknown))
+            + "; available: "
+            + ", ".join(sorted(available))
+        )
+    return [g for g in guides if g.name in set(wanted)]
+
+
 def classify_overlap(start: int, end: int, psp: PspGuide) -> str:
     """``full``, ``partial`` or ``none`` for one guide against one footprint.
 

@@ -47,6 +47,7 @@ from visualise_scatterlines import (  # noqa: E402
     build_psp_guides,
     check_against_sequence,
     drop_offsequence,
+    filter_psps,
     frame_to_guides,
     plot_guides,
     psps_from_frame,
@@ -92,6 +93,16 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--reference",
         help="keep only hits whose subject is this accession (default: keep all)",
     )
+    p.add_argument(
+        "--psp-name",
+        action="append",
+        metavar="NAME",
+        help="draw only this footprint, repeatable. Note this filters the "
+        "drawing only: with --located the point colours were decided upstream, "
+        "against whatever footprints locate_guides.py was given. To restrict "
+        "the classification as well, re-run locate_guides.py --psp-name and "
+        "plot its output",
+    )
     p.add_argument("--title", help="plot title (default: generated from the sequence name)")
     p.add_argument(
         "--cdn-plotlyjs",
@@ -120,6 +131,18 @@ def _resolve_region_start(args: argparse.Namespace, header: str) -> int:
 
 def _finish(args, guides, psps, sequence) -> int:
     """Report the class counts and write the figure. Shared by both inputs."""
+    if args.psp_name:
+        psps = filter_psps(psps, args.psp_name)
+        # Warned rather than silently applied: the colours on the figure may
+        # have been decided by a footprint that is now not drawn.
+        print(
+            f"drawing {len(psps)} footprint(s) only: "
+            + ", ".join(p.name for p in psps)
+            + "\n  note: point colours come from the input table and were not "
+            "recomputed for this subset",
+            file=sys.stderr,
+        )
+
     for psp in sorted(psps, key=lambda p: p.start):
         print(f"  {psp.name}: {psp.start:,}-{psp.end:,} ({psp.length} nt)")
 

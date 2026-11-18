@@ -47,6 +47,7 @@ from visualise_scatterlines import (  # noqa: E402
     build_guides,
     build_psp_guides,
     drop_offsequence,
+    filter_psps,
     guides_to_frame,
     read_fasta,
     region_start_from_header,
@@ -77,6 +78,15 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--reference",
         help="keep only hits whose subject is this accession, and record it as "
         "the reference (default: taken from the hits)",
+    )
+    p.add_argument(
+        "--psp-name",
+        action="append",
+        metavar="NAME",
+        help="restrict the footprints to this guide, repeatable. Guides are "
+        "then classified against only the named footprints, so a guide "
+        "overlapping an excluded one is reported as no overlap (default: use "
+        "every footprint in the hits)",
     )
     p.add_argument(
         "--no-params",
@@ -136,6 +146,14 @@ def main(argv=None) -> int:
         psps = build_psp_guides(hits, region_start=region_start, reference=args.reference)
         psps = drop_offsequence(psps, len(sequence))
         print(f"PspCas13b footprints: {len(psps)} from {args.psp_hits}")
+        if args.psp_name:
+            psps = filter_psps(psps, args.psp_name)
+            # Named explicitly, because the restriction decides the overlap
+            # classes written to the output, not just what a figure draws.
+            print(
+                f"  restricted to {len(psps)}: "
+                + ", ".join(p.name for p in psps)
+            )
 
     guides = build_guides(predictions, sequence, psps, transcript=name)
     frame = guides_to_frame(

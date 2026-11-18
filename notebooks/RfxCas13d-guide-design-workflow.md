@@ -35,19 +35,3 @@ python scripts/blast_guides.py \
 | Cand_4_N_Sarbecov | 29149–29178 |
 | Cand_3_N_Sarbecov | 29347–29376 |
 | N_cand_93 | 29474–29503 |
-
-
-## 2026-11-16: RfxCas13d guide design for ACE2 and Cldn5
-
-**Aim.** Design RfxCas13d guides targeting the mouse ACE2 and Cldn5 genes. There are no pre-existing RfxCas13d guides for these genes, so we will design new guides using the RfxCas13d guide design pipeline.
-
-**Method.** First, we will predict candidate guides using the RfxCas13d guide design tool TIGER, which takes place on another server. 
-
-```bash
-rsync -avP data/mouse/ACE2.fa rbengtsson@172.26.144.219:/home/unimelb.edu.au/rbengtsson/software/tiger/my_fastas/
-rsync -avP data/mouse/Cldn5.fa rbengtsson@172.26.144.219:/home/unimelb.edu.au/rbengtsson/software/tiger/my_fastas/
-```
-
-Output from TIGER is stored at `results/mouse/ACE2_on_target.csv` and `results/mouse/Cldn5_on_target.csv`. The next step is to filter and select the candidate guides based on their predicted efficiency and spacing apart along the target gene.
-
-Since for these two genes we have no pre-existing guides, we will select the top 3 predicted guides for each gene based on their predicted efficiency scores. 

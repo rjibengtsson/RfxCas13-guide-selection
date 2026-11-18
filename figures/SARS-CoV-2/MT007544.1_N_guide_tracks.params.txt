@@ -1,0 +1,33 @@
+# MT007544.1_N_guide_tracks.html -- run parameters
+generated: 2026-11-17T11:21:09+11:00
+script: scripts/plot_guide_tracks.py
+spec: docs/guide-track-plot-spec.md
+genbank: data/SARS-CoV-2/MT007544.1/MT007544.1.gbk
+gene: N
+psp_guides: data/pspcas13b_guides/panSarbeCov_guides.tsv
+psp_hits: results/SARS-CoV-2/panSarbeCov_guides_MT007544.1_fmt6.tsv
+rfx_located: results/SARS-CoV-2/rfx_guides_MT007544.1_N_located.csv
+gene_start: 28274
+gene_end: 29533
+gene_length: 1260
+coordinate_shift: -28273
+n_psp_drawn: 6
+n_rfx_drawn: 9
+rfx_csv: results/SARS-CoV-2/rfx_guides_MT007544.1_N_selected.csv
+psp_selection (6):
+  - Cand_3_N_Sarbecov
+  - N_cand_93
+  - NCP1
+  - Cand_5_N_Sarbecov
+  - A8_NCP
+  - Cand_1_N_Sarbecov
+rfx_selection (9):
+  - MT007544.1_N_1001-1023
+  - MT007544.1_N_1074-1096
+  - MT007544.1_N_1185-1207
+  - MT007544.1_N_1201-1223
+  - MT007544.1_N_0161-0183
+  - MT007544.1_N_0160-0182
+  - MT007544.1_N_0394-0416
+  - MT007544.1_N_0070-0092
+  - MT007544.1_N_0463-0485

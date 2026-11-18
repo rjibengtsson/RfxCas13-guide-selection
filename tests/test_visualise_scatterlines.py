@@ -21,6 +21,7 @@ from visualise_scatterlines import (
     pad_width,
     psps_from_frame,
     drop_offsequence,
+    filter_psps,
     locate_targets,
     plot_guides,
     profile_with_gaps,
@@ -241,6 +242,40 @@ class TestDropOffsequence:
         # Partly on the region: still worth drawing, clipped by the axis.
         kept = drop_offsequence([PspGuide("edge", "r", 1250, 1279)], length=1260)
         assert len(kept) == 1
+
+
+class TestFilterPsps:
+    ALL = [
+        PspGuide("A8_NCP", "r", 68, 97),
+        PspGuide("NCP1", "r", 160, 189),
+        PspGuide("Cand_3_N_Sarbecov", "r", 1074, 1103),
+        PspGuide("N_cand_93", "r", 1201, 1230),
+    ]
+
+    def test_only_the_named_footprints_are_kept(self):
+        kept = filter_psps(self.ALL, ["NCP1", "N_cand_93"])
+        assert [g.name for g in kept] == ["NCP1", "N_cand_93"]
+
+    def test_the_original_order_is_preserved(self):
+        # Named out of order; the result still reads along the sequence.
+        kept = filter_psps(self.ALL, ["N_cand_93", "A8_NCP"])
+        assert [g.name for g in kept] == ["A8_NCP", "N_cand_93"]
+
+    def test_an_unknown_name_raises(self):
+        # A typo must not quietly yield a figure missing a footprint.
+        with pytest.raises(ValueError, match="NCP2"):
+            filter_psps(self.ALL, ["NCP1", "NCP2"])
+
+    def test_the_error_lists_what_is_available(self):
+        with pytest.raises(ValueError, match="A8_NCP"):
+            filter_psps(self.ALL, ["nope"])
+
+    def test_no_names_keeps_everything(self):
+        assert filter_psps(self.ALL, []) == self.ALL
+
+    def test_a_repeated_name_is_not_duplicated(self):
+        kept = filter_psps(self.ALL, ["NCP1", "NCP1"])
+        assert [g.name for g in kept] == ["NCP1"]
 
 
 class TestProfileWithGaps:
